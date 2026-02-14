@@ -1,0 +1,11 @@
+opencv-python
+ultralytics
+python-dotenv
+google-generativeai
+chromadb
+fastapi
+uvicorn
+jinja2
+python-multipart
+google-genai
+python-dotenv

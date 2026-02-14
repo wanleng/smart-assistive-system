@@ -1,0 +1,17 @@
+# User specific
+mobile_app/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.env
+
+# Logs and Data
+*.log
+detections.jsonl
+chroma_db/
+
+# Large files
+*.pt
