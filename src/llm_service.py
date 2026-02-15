@@ -18,6 +18,7 @@ class LLMService:
             "start_time": time.time()
         }
         self.logger = DataLogger()
+        self.logged_objects = {} # Stores time of last log per label
         
         # Configure Gemini (New SDK)
         self.client = None
@@ -67,13 +68,16 @@ class LLMService:
             if obj['is_dangerous']:
                 self.session_data["dangerous_events"] += 1
             
-            # Persistent Logging
-            self.logger.log({
-                "timestamp": timestamp,
-                "type": "detection",
-                "label": label,
-                "metadata": obj
-            })
+            # Persistent Logging (with cooldown)
+            current_time = time.time()
+            if current_time - self.logged_objects.get(label, 0) > 60:
+                self.logger.log({
+                    "timestamp": timestamp,
+                    "type": "detection",
+                    "label": label,
+                    "metadata": obj
+                })
+                self.logged_objects[label] = current_time
             
             # Vector Store Embedding (Async)
             if self.vector_store:

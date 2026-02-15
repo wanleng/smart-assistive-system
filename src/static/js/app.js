@@ -13,6 +13,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const POLL_INTERVAL = 500; // ms
     const MAX_LOG_ENTRIES = 30;
 
+    // --- State ---
+    let lastLogHash = "";
+    let lastDetectionsHash = "";
+
     // --- FPS tracker ---
     let lastPollTime = performance.now();
     let pollCount = 0;
@@ -44,13 +48,22 @@ document.addEventListener('DOMContentLoaded', () => {
             statusBadge.classList.add('connected');
             statusBadge.classList.remove('error');
 
-            // Update detections
-            renderDetections(data.detections || []);
+            // Update detections (with simple dedupe)
+            const detHash = JSON.stringify(data.detections || []);
+            if (detHash !== lastDetectionsHash) {
+                lastDetectionsHash = detHash;
+                renderDetections(data.detections || []);
+            }
 
             // Update LLM guidance (graceful fallback)
             renderGuidance(data.llm_response || data.guidance || null);
 
-            // Update logs (graceful fallback)
+            // Update reports
+            const logCount = data.logs ? data.logs.length : 0;
+            // Diagnostic logging (comment out for production)
+            // if (logCount > 0 && lastLogHash === "") addLocalLog(`Receiving ${logCount} remote logs...`);
+
+            // Update logs (only if changed)
             if (data.logs && Array.isArray(data.logs)) {
                 renderLogs(data.logs);
             }
@@ -83,7 +96,9 @@ document.addEventListener('DOMContentLoaded', () => {
         detections.forEach((det, index) => {
             const li = document.createElement('li');
             li.className = 'detection-item';
-            li.style.animationDelay = `${index * 0.06}s`;
+            // Only animate if list was previously empty or significantly changed
+            // For now, keep animation simple
+            li.style.animationDelay = `${index * 0.05}s`;
 
             const confPercent = (det.confidence * 100).toFixed(0);
 
@@ -145,12 +160,19 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderGuidance(text) {
         if (!llmOutput) return;
 
+        // If text is same as existing content, skip (basic check)
+        const currentText = llmOutput.textContent.trim();
+        if (text && currentText === text && text !== "AI reasoning will appear here...") return;
+
         if (!text) {
-            llmOutput.innerHTML = `
-                <p class="empty-state">
-                    <span class="material-symbols-rounded empty-icon">psychology</span>
-                    <span>AI reasoning will appear here...</span>
-                </p>`;
+            // Only clear if not already cleared
+            if (!llmOutput.querySelector('.empty-state')) {
+                llmOutput.innerHTML = `
+                    <p class="empty-state">
+                        <span class="material-symbols-rounded empty-icon">psychology</span>
+                        <span>AI reasoning will appear here...</span>
+                    </p>`;
+            }
             return;
         }
 
@@ -161,8 +183,25 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderLogs(logs) {
         if (!logEntries) return;
 
+        // Check if changed
+        const newHash = JSON.stringify(logs);
+        if (newHash === lastLogHash) return;
+        lastLogHash = newHash;
+
         logEntries.innerHTML = '';
+        // If logs empty, show empty state or keep old?
+        // Backend returns last 20 lines. If empty, file is empty.
+
         const recent = logs.slice(-MAX_LOG_ENTRIES);
+
+        if (recent.length === 0) {
+            const p = document.createElement('p');
+            p.className = 'log-entry';
+            p.style.fontStyle = 'italic';
+            p.textContent = 'No logs available.';
+            logEntries.appendChild(p);
+            return;
+        }
 
         recent.forEach(log => {
             const p = document.createElement('p');
@@ -191,11 +230,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         p.innerHTML = `<span class="log-time">[${time}]</span> ${escapeHtml(message)}`;
         logEntries.appendChild(p);
-
-        // Trim old entries
-        while (logEntries.children.length > MAX_LOG_ENTRIES) {
-            logEntries.removeChild(logEntries.firstChild);
-        }
         logEntries.scrollTop = logEntries.scrollHeight;
     }
 

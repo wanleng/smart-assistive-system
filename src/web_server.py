@@ -3,6 +3,7 @@ import time
 import logging
 import threading
 import asyncio
+import json
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -34,6 +35,7 @@ reasoner = None
 audio = None
 current_detections = []
 latest_frame = None
+latest_llm_response = "Welcome. System is listening."  # Store the latest LLM text
 system_status = "Initializing..."
 lock = threading.Lock()
 
@@ -67,9 +69,36 @@ def get_audio():
         audio = AudioFeedback()
     return audio
 
+def get_recent_logs(n=20):
+    """Reads the last n lines from detections.jsonl and formats them."""
+    log_file = "detections.jsonl"
+    logs = []
+    try:
+        with open(log_file, "r") as f:
+            # Efficiently read last n lines (for small files readlines is fine, 
+            # for huge files we'd use seek, but this is simple enough for now)
+            lines = f.readlines()
+            last_n = lines[-n:]
+            
+            for line in last_n:
+                try:
+                    data = json.loads(line)
+                    timestamp = data.get("timestamp", "").split("T")[-1].split(".")[0] # Extract HH:MM:SS
+                    label = data.get("label", "unknown")
+                    conf = data.get("metadata", {}).get("confidence", 0)
+                    logs.append(f"[{timestamp}] Detected {label} ({conf:.2f})")
+                except json.JSONDecodeError:
+                    continue
+    except FileNotFoundError:
+        logs.append("Log file not found.")
+    except Exception as e:
+        logs.append(f"Error reading logs: {e}")
+    # print(f"DEBUG LOGS: {len(logs)} entries found")
+    return logs
+
 # Background Task for Detection
 def detection_loop():
-    global current_detections, system_status, latest_frame
+    global current_detections, system_status, latest_frame, latest_llm_response
     
     cam = get_camera()
     det = get_detector()
@@ -101,6 +130,8 @@ def detection_loop():
                     message = res.process(detections)
                     if message:
                         print(f"Speaking: {message}")
+                        with lock:
+                             latest_llm_response = message # Store for Web UI
                         aud.speak(message)
             
             frame_count += 1
@@ -158,7 +189,10 @@ async def video_feed():
 
 @app.get("/api/status")
 async def get_status():
+    print(f"API Sending LLM: {latest_llm_response}")
     return JSONResponse({
         "status": system_status,
-        "detections": current_detections
+        "detections": current_detections,
+        "llm_response": latest_llm_response,
+        "logs": get_recent_logs()
     })
